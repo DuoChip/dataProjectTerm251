@@ -279,15 +279,20 @@ if len(vn_df) == 0:
 else:
     print(f"\n🇻🇳 Tìm thấy {len(vn_df)} dòng dữ liệu Việt Nam.")
 
-    # Chỉ giữ các cột quan trọng: Year và LifeExpBirth
-    vn_result = vn_df[['Year', 'LifeExpBirth']].sort_values('Year')
+    # Dự đoán tuổi thọ
+    vn_features = vn_df[top_features].values
+    vn_scaled = scaler.transform(vn_features)
+    vn_df['Predicted_LifeExp'] = chosen_model.predict(vn_scaled)
+
+    # Chỉ giữ các cột quan trọng
+    vn_result = vn_df[['Year', 'LifeExpBirth', 'Predicted_LifeExp']].sort_values('Year')
 
     # Lưu ra CSV
-    vn_path = os.path.join(OUTPUT_DIR, 'vietnam_life_expectancy_data.csv')
+    vn_path = os.path.join(OUTPUT_DIR, 'vietnam_life_expectancy_predictions.csv')
     vn_result.to_csv(vn_path, index=False)
 
-    print(f"\n🇻🇳 Đã lưu dữ liệu tuổi thọ Việt Nam tại: {vn_path}")
+    print(f"\n🇻🇳 Đã lưu dự đoán tuổi thọ Việt Nam tại: {vn_path}")
 
     # In preview
-    print("\nVietnam Life Expectancy Data:")
-    print(vn_result)
+    print("\nVietnam Life Expectancy Predictions:")
+    print(vn_result.head())
