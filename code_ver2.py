@@ -31,8 +31,8 @@ import statsmodels.api as sm
 import joblib
 
 # ---------- CONFIG ----------
-DATA_DIR = r'D:\HCMUT\Python\data_final'
-OUTPUT_DIR = r'D:\HCMUT\Python\output'
+DATA_DIR = 'data_final'
+OUTPUT_DIR = 'output'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 TARGET = 'LifeExpBirth'
