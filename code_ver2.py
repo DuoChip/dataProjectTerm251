@@ -15,7 +15,11 @@ Full pipeline sử dụng 3 tập dữ liệu (train / valid / test)
 """
 import os
 import warnings
+import sys
 warnings.filterwarnings("ignore")
+
+# Fix encoding for Windows console
+sys.stdout.reconfigure(encoding='utf-8')
 
 import pandas as pd
 import numpy as np
@@ -197,47 +201,47 @@ for k, v in metrics_test.items():
     print(f"{k}: {v:.4f}")
 
 # ---------- 11. FEATURE IMPORTANCE ----------
-if model_name == 'LinearRegression':
-    lr_coefs = pd.Series(lr.coef_, index=top_features).sort_values(key=lambda x: abs(x), ascending=False)
-    print("\nLinear Coefficients:")
-    print(lr_coefs)
+# if model_name == 'LinearRegression':
+#     lr_coefs = pd.Series(lr.coef_, index=top_features).sort_values(key=lambda x: abs(x), ascending=False)
+#     print("\nLinear Coefficients:")
+#     print(lr_coefs)
 
-    plt.figure(figsize=(8,6))
-    sns.barplot(x=lr_coefs.abs(), y=lr_coefs.index, color='skyblue')
-    plt.title("Top Features ảnh hưởng mạnh nhất (Linear Regression)")
-    plt.xlabel('Coefficient')
-    plt.ylabel('Feature')
-    plt.tight_layout()
-    plt.savefig(os.path.join(OUTPUT_DIR, 'linear_top_features.png'), dpi=150)
-    plt.close()
+#     plt.figure(figsize=(8,6))
+#     sns.barplot(x=lr_coefs.abs(), y=lr_coefs.index, color='skyblue')
+#     plt.title("Top Features by Linear Regression Coefficients")
+#     plt.xlabel('Coefficient')
+#     plt.ylabel('Feature')
+#     plt.tight_layout()
+#     plt.savefig(os.path.join(OUTPUT_DIR, 'linear_top_features.png'), dpi=150)
+#     plt.close()
 
 # ---------- 12. PERMUTATION IMPORTANCE ----------
-perm = permutation_importance(chosen_model, X_test_scaled, y_test, n_repeats=PERM_REPEATS, random_state=RANDOM_STATE)
-perm_series = pd.Series(perm.importances_mean, index=top_features).sort_values(ascending=False)
-print("\nTop Permutation Importance (test):")
-print(perm_series.head(10))
-if model_name == 'LinearRegression':
-    coef_series = pd.Series(np.abs(lr.coef_), index=top_features)
+# perm = permutation_importance(chosen_model, X_test_scaled, y_test, n_repeats=PERM_REPEATS, random_state=RANDOM_STATE)
+# perm_series = pd.Series(perm.importances_mean, index=top_features).sort_values(ascending=False)
+# print("\nTop Permutation Importance (test):")
+# print(perm_series.head(10))
+# if model_name == 'LinearRegression':
+#     coef_series = pd.Series(np.abs(lr.coef_), index=top_features)
     
-    # Gom hai loại importance vào cùng DataFrame để so sánh
-    compare_df = pd.DataFrame({
-        'Linear Coef (abs)': coef_series,
-        'Permutation Importance': perm_series
-    }).fillna(0)
+#     # Gom hai loại importance vào cùng DataFrame để so sánh
+#     compare_df = pd.DataFrame({
+#         'Linear Coef (abs)': coef_series,
+#         'Permutation Importance': perm_series
+#     }).fillna(0)
 
-    # Chuẩn hóa (optional): dễ so sánh nếu chênh lệch thang đo
-    compare_df = compare_df / compare_df.max()
+#     # Chuẩn hóa (optional): dễ so sánh nếu chênh lệch thang đo
+#     compare_df = compare_df / compare_df.max()
 
-    plt.figure(figsize=(10, 6))
-    compare_df.sort_values('Permutation Importance', ascending=False).head(10).plot(kind='bar')
-    plt.title('So sánh độ quan trọng: Linear Coefficient vs Permutation Importance')
-    plt.ylabel('Tầm quan trọng (chuẩn hóa)')
-    plt.xlabel('Biến độc lập')
-    plt.xticks(rotation=45, ha='right')
-    plt.tight_layout()
-    plt.savefig(os.path.join(OUTPUT_DIR, 'feature_importance_comparison.png'), dpi=150)
-    plt.close()
-    print(f"📊 Đã lưu biểu đồ so sánh tại: {os.path.join(OUTPUT_DIR, 'feature_importance_comparison.png')}")
+#     plt.figure(figsize=(10, 6))
+#     compare_df.sort_values('Permutation Importance', ascending=False).head(10).plot(kind='bar')
+#     plt.title('Comparison: Linear Coefficient vs Permutation Importance')
+#     plt.ylabel('Normalized Importance')
+#     plt.xlabel('Features')
+#     plt.xticks(rotation=45, ha='right')
+#     plt.tight_layout()
+#     plt.savefig(os.path.join(OUTPUT_DIR, 'feature_importance_comparison.png'), dpi=150)
+#     plt.close()
+#     print(f"[Chart] Saved comparison plot at: {os.path.join(OUTPUT_DIR, 'feature_importance_comparison.png')}")
 
 # ---------- 13. LƯU KẾT QUẢ ----------
 y_pred_test_lr = lr.predict(X_test_scaled)
@@ -250,10 +254,10 @@ perf_summary = pd.DataFrame([
 ])
 perf_summary.to_csv(os.path.join(OUTPUT_DIR, 'model_performance_summary.csv'), index=False)
 vif_data.to_csv(os.path.join(OUTPUT_DIR, 'vif_summary.csv'), index=False)
-perm_series.to_csv(os.path.join(OUTPUT_DIR, 'perm_importance.csv'), header=['perm_importance_mean'])
+# perm_series.to_csv(os.path.join(OUTPUT_DIR, 'perm_importance.csv'), header=['perm_importance_mean'])
 joblib.dump(chosen_model, os.path.join(OUTPUT_DIR, f'{model_name.lower()}_final_model.joblib'))
 vif_data.to_csv(os.path.join(OUTPUT_DIR, 'vif_summary.csv'), index=False)
-perm_series.to_csv(os.path.join(OUTPUT_DIR, 'perm_importance.csv'), header=['perm_importance_mean'])
+# perm_series.to_csv(os.path.join(OUTPUT_DIR, 'perm_importance.csv'), header=['perm_importance_mean'])
 joblib.dump(chosen_model, os.path.join(OUTPUT_DIR, f'{model_name.lower()}_final_model.joblib'))
 pred_vs_actual_df = pd.DataFrame({
     'y_true': y_test,
