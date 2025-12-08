@@ -153,6 +153,11 @@ top_features = [f for f in top_features if f not in dropped_features]
 for df in [train_df, valid_df, test_df]:
     df.drop(columns=dropped_features, inplace=True, errors='ignore')
 
+# ---------- 4. BUILD MODEL DATA (sau khi loại bỏ features) ----------
+X_train, y_train = prepare(train_df)
+X_valid, y_valid = prepare(valid_df)
+X_test,  y_test  = prepare(test_df)
+
 print("\n✅ Loaded datasets:")
 print(f"Train: {train_df.shape}, Valid: {valid_df.shape}, Test: {test_df.shape}")
 
