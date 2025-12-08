@@ -146,6 +146,9 @@ dropped_features, vif_data = handle_multicollinearity(train_df[top_features + [T
 print("\n❌ Các feature bị loại do đa cộng tuyến:")
 print(dropped_features)
 
+# Cập nhật top_features sau khi loại bỏ đa cộng tuyến
+top_features = [f for f in top_features if f not in dropped_features]
+
 # Loại các cột bị loại khỏi toàn bộ tập dữ liệu
 for df in [train_df, valid_df, test_df]:
     df.drop(columns=dropped_features, inplace=True, errors='ignore')
@@ -257,3 +260,29 @@ pred_vs_actual_df.to_csv(pred_vs_actual_path, index=False)
 print("\n✅ Saved all outputs to:", OUTPUT_DIR)
 print("\nPerformance Summary:")
 print(perf_summary)
+
+# ---------- 14. TRÍCH XUẤT DỮ LIỆU TUỔI THỌ VIỆT NAM QUA CÁC NĂM ----------
+
+# Ghép toàn bộ dữ liệu lại để lọc Việt Nam
+full_df = pd.concat([train_df, valid_df, test_df], axis=0, ignore_index=True)
+
+# Lọc Việt Nam
+vn_df = full_df[full_df['Country'] == 'Viet Nam'].copy()
+
+if len(vn_df) == 0:
+    print("\n⚠️ Không tìm thấy dữ liệu cho Việt Nam trong bộ dữ liệu!")
+else:
+    print(f"\n🇻🇳 Tìm thấy {len(vn_df)} dòng dữ liệu Việt Nam.")
+
+    # Chỉ giữ các cột quan trọng: Year và LifeExpBirth
+    vn_result = vn_df[['Year', 'LifeExpBirth']].sort_values('Year')
+
+    # Lưu ra CSV
+    vn_path = os.path.join(OUTPUT_DIR, 'vietnam_life_expectancy_data.csv')
+    vn_result.to_csv(vn_path, index=False)
+
+    print(f"\n🇻🇳 Đã lưu dữ liệu tuổi thọ Việt Nam tại: {vn_path}")
+
+    # In preview
+    print("\nVietnam Life Expectancy Data:")
+    print(vn_result)
