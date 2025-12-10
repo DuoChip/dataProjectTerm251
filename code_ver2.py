@@ -1,30 +1,30 @@
 # -*- coding: utf-8 -*-
-# Liner and svr
+# Full Linear Regression + SVR Pipeline with Extended Residual Analysis
+"""
+Mục tiêu: Xác định yếu tố kinh tế – xã hội ảnh hưởng mạnh nhất đến tuổi thọ trung bình (LifeExpBirth)
+Phương pháp: Linear Regression & SVR
+Quy trình:
+    - Load train/valid/test
+    - Feature selection theo tương quan
+    - Chuẩn hóa dữ liệu
+    - Train Linear & SVR, đánh giá valid
+    - Chọn mô hình tốt nhất -> test
+    - Phân tích feature importance, VIF
+    - Phân tích residual (phân bố, top lỗi, tương quan với biến)
+    - Tự động sinh nhận định thống kê residuals
+"""
 
-"""
-Full pipeline sử dụng 3 tập dữ liệu (train / valid / test)
-----------------------------------------------------------
-- Load train, valid, test CSV
-- EDA cơ bản (train)
-- Feature selection (dựa trên train)
-- Scale bằng train
-- Huấn luyện trên train
-- Đánh giá trên valid (tinh chỉnh mô hình)
-- Đánh giá cuối cùng trên test
-- Phân tích hệ số, permutation importance, VIF
-"""
+# =====================================================
+# 1️⃣ Import & Config
+# =====================================================
 import os
 import warnings
-import sys
 warnings.filterwarnings("ignore")
-
-# Fix encoding for Windows console
-sys.stdout.reconfigure(encoding='utf-8')
 
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import seaborn as sns
+import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVR
@@ -33,9 +33,11 @@ from sklearn.inspection import permutation_importance
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 import statsmodels.api as sm
 import joblib
+from scipy.stats import skew, kurtosis
+
 
 # ---------- CONFIG ----------
-DATA_DIR = 'data_final'
+DATA_DIR = 'devided_sets'
 OUTPUT_DIR = 'output'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -44,7 +46,22 @@ TOP_K = 12
 RANDOM_STATE = 42
 PERM_REPEATS = 8
 
-# ---------- UTILS ----------
+PALETTE = [
+    "#115f9a", "#1984c5", "#22a7f0",
+    "#48b5c4", "#76c68f", "#a6d75b",
+    "#c9e52f", "#d0ee11", "#d0f400"
+]
+
+sns.set_palette(PALETTE)   # Set palette mặc định
+
+# =====================================================
+# Utility Functions
+# =====================================================
+def save_fig(fig, filename):
+    path = os.path.join(OUTPUT_DIR, filename)
+    fig.savefig(path, bbox_inches='tight', dpi=150)
+    print(f"✅ Saved figure: {path}")
+
 def metrics(y_true, y_pred):
     return {
         'R2': r2_score(y_true, y_pred),
@@ -52,17 +69,22 @@ def metrics(y_true, y_pred):
         'MAE': mean_absolute_error(y_true, y_pred)
     }
 
-# ---------- 1. LOAD DATA ----------
+# =====================================================
+# Load Data
+# =====================================================
 train_df = pd.read_csv(os.path.join(DATA_DIR, 'train.csv'))
 valid_df = pd.read_csv(os.path.join(DATA_DIR, 'valid.csv'))
 test_df  = pd.read_csv(os.path.join(DATA_DIR, 'test.csv'))
 
-# ---------- 2. EDA ----------
-print("\n--- EDA (Train) ---")
-print(train_df.describe().T.head())
-print("Missing values:\n", train_df.isna().sum().sort_values(ascending=False).head(10))
+for df in [train_df, valid_df, test_df]:
+    if 'GNIAtlas' in df.columns:
+        df.drop(columns=['GNIAtlas'], inplace=True)
 
-# ---------- 3. FEATURE SELECTION ----------
+print(f"Loaded datasets: Train={train_df.shape}, Valid={valid_df.shape}, Test={test_df.shape}")
+
+# =====================================================
+# Feature Selection
+# =====================================================
 numeric_cols = train_df.select_dtypes(include=[np.number]).columns.tolist()
 for c in [TARGET, 'Year']:
     if c in numeric_cols:
@@ -70,233 +92,233 @@ for c in [TARGET, 'Year']:
 
 corrs = train_df[numeric_cols + [TARGET]].corr()[TARGET].abs().drop(TARGET).sort_values(ascending=False)
 top_features = corrs.head(TOP_K).index.tolist()
-print(f"\nTop {TOP_K} features by abs Pearson correlation with {TARGET}:")
+print(f"\nTop {TOP_K} correlated features with {TARGET}:")
 print(corrs.head(TOP_K))
 
-# ---------- 4. BUILD MODEL DATA ----------
 def prepare(df):
     df = df[top_features + [TARGET]].dropna()
     return df[top_features].values, df[TARGET].values
 
 X_train, y_train = prepare(train_df)
 X_valid, y_valid = prepare(valid_df)
-X_test,  y_test  = prepare(test_df)
+X_test, y_test   = prepare(test_df)
 
-# ---------- 5. MULTICOLLINEARITY (VIF) ----------
-def handle_multicollinearity(df, target_col, threshold=10, verbose=True):
-    """
-    Loại bỏ dần biến có đa cộng tuyến cao (VIF > threshold).
-    Giữ lại biến có tương quan mạnh hơn với target.
-    In ra VIF của từng vòng nếu verbose=True.
-    """
-    numeric_df = df.select_dtypes(include=[np.number]).drop(columns=[target_col], errors='ignore')
-    corr_with_target = df[numeric_df.columns].corrwith(df[target_col]).abs()
 
-    dropped_features = []
-    round_idx = 1
 
-    while True:
-        # Tính VIF cho các feature hiện tại
-        X_vif = sm.add_constant(numeric_df)
-        vif_series = pd.Series(
-            [variance_inflation_factor(X_vif.values, i) for i in range(1, X_vif.shape[1])],
-            index=numeric_df.columns
-        )
+# ---------- 12. MULTICOLLINEARITY (VIF) ----------
+X_train_df = pd.DataFrame(X_train, columns=top_features)
+X_vif = sm.add_constant(X_train_df)
+vif_data = pd.DataFrame({
+    "Feature": top_features,
+    "VIF": [variance_inflation_factor(X_vif.values, i+1) for i in range(len(top_features))]
+}).sort_values('VIF', ascending=False)
+print("\nVIF (đa cộng tuyến):")
+print(vif_data)
 
-        if verbose:
-            print(f"\n Vòng {round_idx}: VIF hiện tại")
-            print(vif_series.sort_values(ascending=False).round(3))
 
-        max_vif = vif_series.max()
-        if max_vif <= threshold:
-            if verbose:
-                print(f"\n✅ Tất cả VIF ≤ {threshold}, dừng loại bỏ.")
-            break
-
-        # Xác định biến có VIF cao nhất
-        high_vif_feature = vif_series.idxmax()
-        corr_features = numeric_df.corr()[high_vif_feature].abs().sort_values(ascending=False)
-        corr_features = corr_features.drop(high_vif_feature)
-
-        # Xác định biến nào nên bỏ (dựa trên tương quan với target)
-        if corr_features.empty:
-            to_drop = high_vif_feature
-        else:
-            most_corr_feature = corr_features.index[0]
-            if corr_with_target[high_vif_feature] < corr_with_target[most_corr_feature]:
-                to_drop = high_vif_feature
-            else:
-                to_drop = most_corr_feature
-
-        if verbose:
-            print(f"\n❌ Loại bỏ biến: {to_drop} "
-                  f"(VIF cao nhất = {max_vif:.2f}, tương quan thấp hơn với target)")
-
-        numeric_df = numeric_df.drop(columns=[to_drop])
-        dropped_features.append(to_drop)
-        round_idx += 1
-
-    # Sau khi loại xong, tính lại VIF cuối cùng
-    vif_data = pd.DataFrame({
-        "Feature": numeric_df.columns,
-        "VIF": [variance_inflation_factor(sm.add_constant(numeric_df).values, i)
-                for i in range(1, numeric_df.shape[1] + 1)]
-    }).sort_values("VIF", ascending=False)
-
-    return dropped_features, vif_data
-
-dropped_features, vif_data = handle_multicollinearity(train_df[top_features + [TARGET]], TARGET, threshold=10)
-
-print("\n❌ Các feature bị loại do đa cộng tuyến:")
-print(dropped_features)
-
-# Cập nhật top_features sau khi loại bỏ đa cộng tuyến
-top_features = [f for f in top_features if f not in dropped_features]
-
-# Loại các cột bị loại khỏi toàn bộ tập dữ liệu
-for df in [train_df, valid_df, test_df]:
-    df.drop(columns=dropped_features, inplace=True, errors='ignore')
-
-# ---------- 4. BUILD MODEL DATA (sau khi loại bỏ features) ----------
-X_train, y_train = prepare(train_df)
-X_valid, y_valid = prepare(valid_df)
-X_test,  y_test  = prepare(test_df)
-
-print("\n✅ Loaded datasets:")
-print(f"Train: {train_df.shape}, Valid: {valid_df.shape}, Test: {test_df.shape}")
-
-# ---------- 6. SCALING ----------
+# =====================================================
+# Scaling
+# =====================================================
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_valid_scaled = scaler.transform(X_valid)
 X_test_scaled  = scaler.transform(X_test)
 joblib.dump(scaler, os.path.join(OUTPUT_DIR, 'scaler.joblib'))
 
-# ---------- 7. TRAIN LINEAR REGRESSION ----------
+
+
+# =====================================================
+# Linear Regression Training
+# =====================================================
 lr = LinearRegression()
 lr.fit(X_train_scaled, y_train)
 y_pred_valid_lr = lr.predict(X_valid_scaled)
 metrics_lr_valid = metrics(y_valid, y_pred_valid_lr)
+print("\nLinear Regression (Validation):", metrics_lr_valid)
 
-print("\nLinear Regression (validation metrics):", metrics_lr_valid)
-
-# ---------- 8. TRAIN SVR ----------
+# =====================================================
+# SVR Training
+# =====================================================
 svr = SVR(kernel='rbf', C=1.0, gamma='scale', epsilon=0.1)
 svr.fit(X_train_scaled, y_train)
 y_pred_valid_svr = svr.predict(X_valid_scaled)
 metrics_svr_valid = metrics(y_valid, y_pred_valid_svr)
+print("\nSVR (Validation):", metrics_svr_valid)
 
-print("\nSVR (validation metrics):", metrics_svr_valid)
+# =====================================================
+# THÊM PHẦN TẠO VÀ IN BẢNG METRICS
+# =====================================================
+metrics_df = pd.DataFrame({
+    'Linear Regression (Valid)': metrics_lr_valid,
+    'SVR (Valid)': metrics_svr_valid
+}).T # .T để chuyển đổi cột thành hàng
 
-# ---------- 9. CHỌN MÔ HÌNH TỐT HƠN ----------
+print("\n\n------------------------------------------------------")
+print("📊 BẢNG ĐÁNH GIÁ MÔ HÌNH (Tập Valid)")
+print("------------------------------------------------------")
+print(metrics_df.round(4)) # Làm tròn 4 chữ số thập phân cho bảng đẹp
+print("------------------------------------------------------")
+
+
+
+# =====================================================
+# Model Selection by Valid set & Test Evaluation
+# =====================================================
 chosen_model = lr if metrics_lr_valid['R2'] > metrics_svr_valid['R2'] else svr
 model_name = 'LinearRegression' if chosen_model == lr else 'SVR'
-print(f"\n✅ Chọn mô hình: {model_name} (R2 validation = {max(metrics_lr_valid['R2'], metrics_svr_valid['R2']):.4f})")
+print(f"\n✅ Chọn mô hình: {model_name}")
 
-# ---------- 10. ĐÁNH GIÁ CUỐI CÙNG TRÊN TEST ----------
 y_pred_test = chosen_model.predict(X_test_scaled)
 metrics_test = metrics(y_test, y_pred_test)
-print(f"\n📊 Final Evaluation on Test Set ({model_name}):")
-for k, v in metrics_test.items():
-    print(f"{k}: {v:.4f}")
+# print(f"\n📊 Test Performance ({model_name}): {metrics_test}")
+print(f"\n📊 Test Performance ({model_name}):")
+# Chuyển dictionary thành Pandas Series và in ra để mỗi giá trị xuống một dòng
+print(pd.Series(metrics_test).round(4))
 
-# ---------- 11. FEATURE IMPORTANCE ----------
-# if model_name == 'LinearRegression':
-#     lr_coefs = pd.Series(lr.coef_, index=top_features).sort_values(key=lambda x: abs(x), ascending=False)
-#     print("\nLinear Coefficients:")
-#     print(lr_coefs)
 
-#     plt.figure(figsize=(8,6))
-#     sns.barplot(x=lr_coefs.abs(), y=lr_coefs.index, color='skyblue')
-#     plt.title("Top Features by Linear Regression Coefficients")
-#     plt.xlabel('Coefficient')
-#     plt.ylabel('Feature')
-#     plt.tight_layout()
-#     plt.savefig(os.path.join(OUTPUT_DIR, 'linear_top_features.png'), dpi=150)
-#     plt.close()
+# =====================================================
+# Feature Importance + Multicollinearity
+# =====================================================
+if model_name == 'LinearRegression':
+    lr_coefs = pd.Series(lr.coef_, index=top_features).sort_values(key=lambda x: abs(x), ascending=False)
+    plt.figure(figsize=(8,6))
+    sns.barplot(x=lr_coefs.abs(), y=lr_coefs.index, color='steelblue')
+    plt.title('Linear Regression - Feature Importance')
+    save_fig(plt.gcf(), 'linear_top_features.png')
+    plt.close()
 
-# ---------- 12. PERMUTATION IMPORTANCE ----------
-# perm = permutation_importance(chosen_model, X_test_scaled, y_test, n_repeats=PERM_REPEATS, random_state=RANDOM_STATE)
-# perm_series = pd.Series(perm.importances_mean, index=top_features).sort_values(ascending=False)
-# print("\nTop Permutation Importance (test):")
-# print(perm_series.head(10))
-# if model_name == 'LinearRegression':
-#     coef_series = pd.Series(np.abs(lr.coef_), index=top_features)
-    
-#     # Gom hai loại importance vào cùng DataFrame để so sánh
-#     compare_df = pd.DataFrame({
-#         'Linear Coef (abs)': coef_series,
-#         'Permutation Importance': perm_series
-#     }).fillna(0)
+perm = permutation_importance(chosen_model, X_test_scaled, y_test, n_repeats=PERM_REPEATS, random_state=RANDOM_STATE)
+perm_series = pd.Series(perm.importances_mean, index=top_features).sort_values(ascending=False)
+perm_series.to_csv(os.path.join(OUTPUT_DIR, 'perm_importance.csv'))
 
-#     # Chuẩn hóa (optional): dễ so sánh nếu chênh lệch thang đo
-#     compare_df = compare_df / compare_df.max()
+X_vif = sm.add_constant(pd.DataFrame(X_train, columns=top_features))
+vif_data = pd.DataFrame({
+    "Feature": top_features,
+    "VIF": [variance_inflation_factor(X_vif.values, i+1) for i in range(len(top_features))]
+}).sort_values('VIF', ascending=False)
+vif_data.to_csv(os.path.join(OUTPUT_DIR, 'vif_summary.csv'))
 
-#     plt.figure(figsize=(10, 6))
-#     compare_df.sort_values('Permutation Importance', ascending=False).head(10).plot(kind='bar')
-#     plt.title('Comparison: Linear Coefficient vs Permutation Importance')
-#     plt.ylabel('Normalized Importance')
-#     plt.xlabel('Features')
-#     plt.xticks(rotation=45, ha='right')
-#     plt.tight_layout()
-#     plt.savefig(os.path.join(OUTPUT_DIR, 'feature_importance_comparison.png'), dpi=150)
-#     plt.close()
-#     print(f"[Chart] Saved comparison plot at: {os.path.join(OUTPUT_DIR, 'feature_importance_comparison.png')}")
+# =====================================================
+# Residual Analysis
+# =====================================================
+y_pred_lr = lr.predict(X_test_scaled)
+y_pred_svr = svr.predict(X_test_scaled)
 
-# ---------- 13. LƯU KẾT QUẢ ----------
-y_pred_test_lr = lr.predict(X_test_scaled)
-metrics_lr_test = metrics(y_test, y_pred_test_lr)
-perf_summary = pd.DataFrame([
-    {'Model': 'LinearRegression', **metrics_lr_valid, 'Phase': 'Validation'},
-    {'Model': 'SVR', **metrics_svr_valid, 'Phase': 'Validation'},
-    {'Model': 'LinearRegression', **metrics_lr_test, 'Phase': 'Test'},
-    {'Model': model_name, **metrics_test, 'Phase': 'Test'}  # Mô hình được chọn (có thể trùng Linear hoặc SVR)
-])
-perf_summary.to_csv(os.path.join(OUTPUT_DIR, 'model_performance_summary.csv'), index=False)
-vif_data.to_csv(os.path.join(OUTPUT_DIR, 'vif_summary.csv'), index=False)
-# perm_series.to_csv(os.path.join(OUTPUT_DIR, 'perm_importance.csv'), header=['perm_importance_mean'])
-joblib.dump(chosen_model, os.path.join(OUTPUT_DIR, f'{model_name.lower()}_final_model.joblib'))
-vif_data.to_csv(os.path.join(OUTPUT_DIR, 'vif_summary.csv'), index=False)
-# perm_series.to_csv(os.path.join(OUTPUT_DIR, 'perm_importance.csv'), header=['perm_importance_mean'])
-joblib.dump(chosen_model, os.path.join(OUTPUT_DIR, f'{model_name.lower()}_final_model.joblib'))
-pred_vs_actual_df = pd.DataFrame({
+residuals_df = test_df[['Country', 'Year']].copy()
+
+residuals_df = pd.DataFrame({
     'y_true': y_test,
-    'y_pred': y_pred_test
+    'y_pred_lr': y_pred_lr,
+    'y_pred_svr': y_pred_svr
 })
-pred_vs_actual_path = os.path.join(OUTPUT_DIR, 'pred_vs_actual.csv')
-pred_vs_actual_df.to_csv(pred_vs_actual_path, index=False)
+residuals_df['error_lr'] = residuals_df['y_true'] - residuals_df['y_pred_lr']
+residuals_df['error_svr'] = residuals_df['y_true'] - residuals_df['y_pred_svr']
+residuals_df['abs_error_lr'] = residuals_df['error_lr'].abs()
+residuals_df['abs_error_svr'] = residuals_df['error_svr'].abs()
 
-print("\n✅ Saved all outputs to:", OUTPUT_DIR)
-print("\nPerformance Summary:")
-print(perf_summary)
+# =====================================================
+# Residual Analysis (with Country & Year)
+# =====================================================
+y_pred_lr = lr.predict(X_test_scaled)
+y_pred_svr = svr.predict(X_test_scaled)
 
-# ---------- 14. TRÍCH XUẤT DỮ LIỆU TUỔI THỌ VIỆT NAM QUA CÁC NĂM ----------
+# Giữ Country và Year từ test_df
+residuals_df = test_df[['Country', 'Year']].copy()
 
-# Ghép toàn bộ dữ liệu lại để lọc Việt Nam
-full_df = pd.concat([train_df, valid_df, test_df], axis=0, ignore_index=True)
+# Thêm y_true và y_pred
+residuals_df['y_true'] = y_test
+residuals_df['y_pred_lr'] = y_pred_lr
+residuals_df['y_pred_svr'] = y_pred_svr
 
-# Lọc Việt Nam
-vn_df = full_df[full_df['Country'] == 'Viet Nam'].copy()
+# Residuals
+residuals_df['error_lr'] = residuals_df['y_true'] - residuals_df['y_pred_lr']
+residuals_df['error_svr'] = residuals_df['y_true'] - residuals_df['y_pred_svr']
+residuals_df['abs_error_lr'] = residuals_df['error_lr'].abs()
+residuals_df['abs_error_svr'] = residuals_df['error_svr'].abs()
 
-if len(vn_df) == 0:
-    print("\n⚠️ Không tìm thấy dữ liệu cho Việt Nam trong bộ dữ liệu!")
-else:
-    print(f"\n🇻🇳 Tìm thấy {len(vn_df)} dòng dữ liệu Việt Nam.")
+# Top lỗi lớn nhất
+top_err_lr = residuals_df.sort_values('abs_error_lr', ascending=False).head(10)
+top_err_svr = residuals_df.sort_values('abs_error_svr', ascending=False).head(10)
 
-    # Dự đoán tuổi thọ
-    vn_features = vn_df[top_features].values
-    vn_scaled = scaler.transform(vn_features)
-    vn_df['Predicted_LifeExp'] = chosen_model.predict(vn_scaled)
+print("\n🔍 Top 10 mẫu Linear Regression sai nhiều nhất:")
+print(top_err_lr[['Country', 'Year', 'y_true', 'y_pred_lr', 'error_lr', 'abs_error_lr']])
 
-    # Chỉ giữ các cột quan trọng
-    vn_result = vn_df[['Year', 'LifeExpBirth', 'Predicted_LifeExp']].sort_values('Year')
+print("\n🔍 Top 10 mẫu SVR sai nhiều nhất:")
+print(top_err_svr[['Country', 'Year', 'y_true', 'y_pred_svr', 'error_svr', 'abs_error_svr']])
 
-    # Lưu ra CSV
-    vn_path = os.path.join(OUTPUT_DIR, 'vietnam_life_expectancy_predictions.csv')
-    vn_result.to_csv(vn_path, index=False)
+# Distribution
+plt.figure(figsize=(10,6))
+sns.kdeplot(residuals_df['error_lr'], fill=True, label='Linear Regression')
+sns.kdeplot(residuals_df['error_svr'], fill=True, label='SVR')
+plt.title('Residual Distribution Comparison')
+plt.xlabel('Error (y_true - y_pred)')
+plt.legend()
+save_fig(plt.gcf(), 'residual_distribution_lr_vs_svr.png')
+plt.close()
 
-    print(f"\n🇻🇳 Đã lưu dự đoán tuổi thọ Việt Nam tại: {vn_path}")
+# Scatter
+fig, axes = plt.subplots(1, 2, figsize=(12,5))
+sns.scatterplot(x=residuals_df['y_true'], y=residuals_df['y_pred_lr'], ax=axes[0])
+axes[0].plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
+axes[0].set_title('Linear Regression: y_pred vs y_true')
+sns.scatterplot(x=residuals_df['y_true'], y=residuals_df['y_pred_svr'], ax=axes[1], color='orange')
+axes[1].plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
+axes[1].set_title('SVR: y_pred vs y_true')
+save_fig(plt.gcf(), 'y_true_vs_pred_lr_svr.png')
+plt.close()
 
-    # In preview
-    print("\nVietnam Life Expectancy Predictions:")
-    print(vn_result.head())
+# Top lỗi lớn nhất
+top_err_lr = residuals_df.sort_values('abs_error_lr', ascending=False).head(10)
+top_err_svr = residuals_df.sort_values('abs_error_svr', ascending=False).head(10)
+print("\n🔍 Top 10 mẫu Linear Regression sai nhiều nhất:")
+print(top_err_lr)
+print("\n🔍 Top 10 mẫu SVR sai nhiều nhất:")
+print(top_err_svr)
+
+# Correlation giữa feature & residual
+resid_corrs = pd.DataFrame({
+    'corr_error_lr': [np.corrcoef(X_test_scaled[:, i], residuals_df['abs_error_lr'])[0,1] for i in range(len(top_features))],
+    'corr_error_svr': [np.corrcoef(X_test_scaled[:, i], residuals_df['abs_error_svr'])[0,1] for i in range(len(top_features))]
+}, index=top_features)
+resid_corrs.to_csv(os.path.join(OUTPUT_DIR, 'residuals_feature_correlation.csv'))
+
+# Phân tích thống kê residuals
+stats_lr = {
+    'mean': np.mean(residuals_df['error_lr']),
+    'std': np.std(residuals_df['error_lr']),
+    'skewness': skew(residuals_df['error_lr']),
+    'kurtosis': kurtosis(residuals_df['error_lr'])
+}
+stats_svr = {
+    'mean': np.mean(residuals_df['error_svr']),
+    'std': np.std(residuals_df['error_svr']),
+    'skewness': skew(residuals_df['error_svr']),
+    'kurtosis': kurtosis(residuals_df['error_svr'])
+}
+
+print("\n📊 Residual Stats (LR):", stats_lr)
+print("📊 Residual Stats (SVR):", stats_svr)
+
+# Nhận định tự động
+def interpret_residual(stats, model):
+    desc = f"\n📈 {model} Residual Analysis:\n"
+    if abs(stats['mean']) < 1:
+        desc += "• Trung bình gần 0 → mô hình không bias đáng kể.\n"
+    else:
+        desc += "• Có bias → mô hình dự đoán lệch.\n"
+    if stats['std'] > 5:
+        desc += "• Phương sai cao → sai số không ổn định.\n"
+    if stats['skewness'] > 0.5:
+        desc += "• Phân phối lệch phải → mô hình thường **underpredict** (dự đoán thấp hơn thực tế).\n"
+    elif stats['skewness'] < -0.5:
+        desc += "• Phân phối lệch trái → mô hình thường **overpredict**.\n"
+    if stats['kurtosis'] > 3:
+        desc += "• Có đuôi dài → tồn tại outlier hoặc phi tuyến mạnh.\n"
+    return desc
+
+print(interpret_residual(stats_lr, "Linear Regression"))
+print(interpret_residual(stats_svr, "SVR"))
+
+# Save residuals
+residuals_df.to_csv(os.path.join(OUTPUT_DIR, 'residuals_comparison_lr_svr.csv'), index=False)
+print("\n✅ All residual analyses and visualizations saved successfully.")
