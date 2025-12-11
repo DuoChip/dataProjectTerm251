@@ -71,7 +71,7 @@ test_df  = pd.read_csv(os.path.join(DATA_DIR, 'test.csv'))
 
 for df in [train_df, valid_df, test_df]:
     if 'GNIAtlas' in df.columns:
-        df.drop(columns=['GNIAtlas'], inplace=True)
+        df.drop(columns=['GNIAtlas'], inplace=True) # Loại bỏ biến GNIAtlas vì đa cộng tuyến cao với GDP
 
 # ================= Feature Selection =====================
 # Correlation-based feature selection
@@ -100,16 +100,6 @@ vif_data.to_csv(os.path.join(OUTPUT_DIR, 'vif_summary.csv'), index=False)
 X_train, y_train = prepare(train_df)
 X_valid, y_valid = prepare(valid_df)
 X_test, y_test = prepare(test_df)
-
-# Save final VIF
-X_vif = sm.add_constant(pd.DataFrame(X_train, columns=top_features))
-vif_data = pd.DataFrame({
-    "Feature": top_features,
-    "VIF": [variance_inflation_factor(X_vif.values, i+1) for i in range(len(top_features))]
-}).sort_values('VIF', ascending=False)
-vif_data.to_csv(os.path.join(OUTPUT_DIR, 'vif_summary_final.csv'), index=False)
-
-print(f"Final features: {len(top_features)} (max VIF={vif_data['VIF'].max():.2f})")
 
 # ================= Scaling =====================
 scaler = StandardScaler()
