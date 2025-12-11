@@ -96,38 +96,20 @@ vif_data = pd.DataFrame({
 }).sort_values('VIF', ascending=False)
 vif_data.to_csv(os.path.join(OUTPUT_DIR, 'vif_summary.csv'), index=False)
 
-# Remove features with VIF > 10
-VIF_THRESHOLD = 10
-high_vif_features = vif_data[vif_data['VIF'] > VIF_THRESHOLD]['Feature'].tolist()
+# Prepare final data
+X_train, y_train = prepare(train_df)
+X_valid, y_valid = prepare(valid_df)
+X_test, y_test = prepare(test_df)
 
-if high_vif_features:
-    print(f"\n⚠️ Removing {len(high_vif_features)} features with VIF > {VIF_THRESHOLD}:")
-    for feat in high_vif_features:
-        vif_val = vif_data[vif_data['Feature'] == feat]['VIF'].values[0]
-        print(f"   - {feat} (VIF={vif_val:.2f})")
-    
-    # Remove high VIF features
-    top_features = [f for f in top_features if f not in high_vif_features]
-    
-    # Recalculate data and VIF after removal
-    X_train, y_train = prepare(train_df)
-    X_valid, y_valid = prepare(valid_df)
-    X_test, y_test = prepare(test_df)
-    
-    X_vif = sm.add_constant(pd.DataFrame(X_train, columns=top_features))
-    vif_data = pd.DataFrame({
-        "Feature": top_features,
-        "VIF": [variance_inflation_factor(X_vif.values, i+1) for i in range(len(top_features))]
-    }).sort_values('VIF', ascending=False)
-    vif_data.to_csv(os.path.join(OUTPUT_DIR, 'vif_summary_final.csv'), index=False)
-    
-    print(f"✅ Final features: {len(top_features)} (max VIF={vif_data['VIF'].max():.2f})")
-else:
-    print(f"✅ All features have VIF < {VIF_THRESHOLD} (max VIF={vif_data['VIF'].max():.2f})")
-    # Prepare final data with all features
-    X_train, y_train = prepare(train_df)
-    X_valid, y_valid = prepare(valid_df)
-    X_test, y_test = prepare(test_df)
+# Save final VIF
+X_vif = sm.add_constant(pd.DataFrame(X_train, columns=top_features))
+vif_data = pd.DataFrame({
+    "Feature": top_features,
+    "VIF": [variance_inflation_factor(X_vif.values, i+1) for i in range(len(top_features))]
+}).sort_values('VIF', ascending=False)
+vif_data.to_csv(os.path.join(OUTPUT_DIR, 'vif_summary_final.csv'), index=False)
+
+print(f"Final features: {len(top_features)} (max VIF={vif_data['VIF'].max():.2f})")
 
 # ================= Scaling =====================
 scaler = StandardScaler()
