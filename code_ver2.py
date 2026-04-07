@@ -37,8 +37,8 @@ from scipy.stats import skew, kurtosis
 
 
 # ---------- CONFIG ----------
-DATA_DIR = '/Users/duoc.phamdinh/Documents/TERM 251/KTDL/devided_sets'
-OUTPUT_DIR = '/Users/duoc.phamdinh/Documents/TERM 251/KTDL/ver2_output'
+DATA_DIR = './devided_sets'
+OUTPUT_DIR = './ver2_output'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 TARGET = 'LifeExpBirth'
